@@ -20,20 +20,20 @@ import Unsafe (todo)
 --------------------------------------------------------------------------------
 -- # Interpret
 --------------------------------------------------------------------------------
-interpret :: MInterp Unit
+interpret :: Mdynamic Unit
 interpret = todo "interpret"
 
 --------------------------------------------------------------------------------
 -- # Compare, Ordering
 --------------------------------------------------------------------------------
--- | A partial meta ordering. 
--- | - partial: can be unordered
--- | - meta: can substitute metavariables
+--| A partial meta ordering. 
+--| - partial: can be unordered
+--| - meta: can substitute metavariables
 type PartialMetaOrdering
   = Maybe (Ordering /\ MetaVarSubst)
 
 class PartialMetaCompare a where
-  partialMetaCompare :: a -> a -> MInterp PartialMetaOrdering
+  partialMetaCompare :: a -> a -> Mdynamic PartialMetaOrdering
 
 instance _PartialMetaCompare_Prop :: PartialMetaCompare Prop where
   partialMetaCompare = todo "PartialMetaCompare Prop"
@@ -44,14 +44,14 @@ instance _PartialMetaCompare_PoType_and_Term :: PartialMetaCompare (PoType /\ Te
 --------------------------------------------------------------------------------
 -- # Miscellaneos
 --------------------------------------------------------------------------------
-from_check :: forall a. MInterp_Hs -> Result a -> MInterp a
+from_check :: forall a. Mdynamic_Hs -> Result a -> Mdynamic a
 from_check source = case _ of
   Left (Exc exc) -> do
     source' <- source ⊕ Code " . " ⊕ exc.source ⊕ pempty
     throwError (Exc exc { source = source' })
   Right a -> pure a
 
-check_PoType_compatible_with_DataType :: PoType -> DataType -> MInterp (Result Unit)
+check_PoType_compatible_with_DataType :: PoType -> DataType -> Mdynamic (Result Unit)
 check_PoType_compatible_with_DataType (NamedPoType x) dt = do
   todo "sub x for po; rec po dt"
 

@@ -3,67 +3,63 @@
 --------------------------------------------------------------------------------
 module Foliage.Language where
 
+import Data.Tuple.Nested
 import Prelude
 import Control.Monad.Error.Class (throwError)
 import Control.Monad.Except (ExceptT)
 import Control.Monad.Reader (ReaderT, ask)
-import Control.Monad.State (StateT)
-import Control.Monad.Writer (WriterT)
+import Control.Monad.State (StateT, State)
+import Control.Monad.State as State
+import Control.Monad.Writer (WriterT, Writer)
 import Control.Plus (class Plus, empty)
-import Data.Either (Either)
+import Data.Array as Array
+import Data.Either (Either(..))
 import Data.Exists (Exists)
 import Data.Identity (Identity)
-import Data.List (List)
+import Data.List (List, (:))
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Newtype (class Newtype)
+import Data.Newtype as Newtype
+import Data.Traversable (sequence, traverse)
 import Effect.Aff (Aff)
 import Halogen.HTML (PlainHTML)
 import Halogen.HTML as HH
+import Type.Proxy (Proxy(..))
 import Unsafe (todo)
-
---------------------------------------------------------------------------------
--- ## Stage
---------------------------------------------------------------------------------
--- | Stage where syntax includes syntax sugar.
-type SugarStage
-  = Unit
-
--- | Stage where syntax is fully expanded.
-type CoreStage
-  = Void
+import Unsafe.Coerce (unsafeCoerce)
 
 --------------------------------------------------------------------------------
 -- ## Module
 --------------------------------------------------------------------------------
 type Module
-  = Module_ CoreStage
+  = Module_ Void
 
-data Module_ (stage :: Type)
+data Module_ (sugar :: Type)
   = Module
     { name :: ModuleName
-    , doc :: forall m. Maybe (MRender_Hs m)
-    , dataTypeDefs :: Map DataTypeName (DataTypeDef_ stage)
-    , poTypeDefs :: Map PoTypeName (PoTypeDef_ stage)
-    , functionDefs :: Map FunctionName (FunctionDef_ stage)
-    , relationDefs :: Map RelationName (RelationDef_ stage)
-    , ruleDefs :: Map RuleName (RuleDef_ stage)
-    , fixpointDefs :: Map FixpointName (FixpointDef_ stage)
+    , doc :: forall m. Maybe (Mstatic_Hs m)
+    , dataTypeDefs :: Map DataTypeName (DataTypeDef_ sugar)
+    , poTypeDefs :: Map PoTypeName (PoTypeDef_ sugar)
+    , functionDefs :: Map FunctionName (FunctionDef_ sugar)
+    , relationDefs :: Map RelationName (RelationDef_ sugar)
+    , ruleDefs :: Map RuleName (RuleDef_ sugar)
+    , fixpointDefs :: Map FixpointName (FixpointDef_ sugar)
     }
 
 --------------------------------------------------------------------------------
 -- ## DataTypeDef
 --------------------------------------------------------------------------------
 type DataTypeDef
-  = DataTypeDef_ CoreStage
+  = DataTypeDef_ Void
 
-data DataTypeDef_ (stage :: Type)
+data DataTypeDef_ (sugar :: Type)
   = DataTypeDef
-    { doc :: forall m. Maybe (MRender_Hs m), dataType :: DataType_ stage
+    { doc :: forall m. Maybe (Mstatic_Hs m), dataType :: DataType_ sugar
     }
   | ExternalDataTypeDef
-    { doc :: forall m. Maybe (MRender_Hs m)
+    { doc :: forall m. Maybe (Mstatic_Hs m)
     , represented :: Exists ExternalDataTypeDef_Represented
     }
 
@@ -71,7 +67,7 @@ newtype ExternalDataTypeDef_Represented repr
   = DataTypeDefRepresented
   { to :: repr -> Term
   , from :: Term -> Either String repr
-  , render :: forall m. Monad m => repr -> MRender_Hs m
+  , render :: forall m. Monad m => repr -> Mstatic_Hs m
   , canonical :: repr
   }
 
@@ -79,16 +75,16 @@ newtype ExternalDataTypeDef_Represented repr
 -- ## PoTypeDef
 --------------------------------------------------------------------------------
 type PoTypeDef
-  = PoTypeDef_ CoreStage
+  = PoTypeDef_ Void
 
-data PoTypeDef_ (stage :: Type)
+data PoTypeDef_ (sugar :: Type)
   = PoTypeDef
-    { doc :: forall m. Maybe (MRender_Hs m)
-    , poType :: PoType_ stage
+    { doc :: forall m. Maybe (Mstatic_Hs m)
+    , poType :: PoType_ sugar
     }
   | ExternalPoTypeDef
-    { doc :: forall m. Maybe (MRender_Hs m)
-    , dataType :: DataType_ stage -- underlying dataType
+    { doc :: forall m. Maybe (Mstatic_Hs m)
+    , dataType :: DataType_ sugar -- underlying dataType
     , represented :: Exists ExternalPoTypeDef_Represented
     }
 
@@ -101,13 +97,13 @@ newtype ExternalPoTypeDef_Represented repr
 -- ## FunctionDef
 --------------------------------------------------------------------------------
 type FunctionDef
-  = FunctionDef_ CoreStage
+  = FunctionDef_ Void
 
-data FunctionDef_ (stage :: Type)
+data FunctionDef_ (sugar :: Type)
   = ExternalFunctionDef
-    { doc :: forall m. Maybe (MRender_Hs m)
+    { doc :: forall m. Maybe (Mstatic_Hs m)
     , label :: String
-    , signature :: { inputs :: Array (DataType_ stage), output :: DataType_ stage }
+    , signature :: { inputs :: Array (DataType_ sugar), output :: DataType_ sugar }
     , implementation :: Term -> Either String Term
     }
 
@@ -115,13 +111,13 @@ data FunctionDef_ (stage :: Type)
 -- ## RelationDef
 --------------------------------------------------------------------------------
 type RelationDef
-  = RelationDef_ CoreStage
+  = RelationDef_ Void
 
-data RelationDef_ (stage :: Type)
+data RelationDef_ (sugar :: Type)
   = RelationDef
-    { doc :: forall m. Maybe (MRender_Hs m)
-    , poType :: PoType_ stage -- underlying poType
-    , render :: forall m. Monad m => Term -> MRender_Hs m
+    { doc :: forall m. Maybe (Mstatic_Hs m)
+    , poType :: PoType_ sugar -- underlying poType
+    , render :: forall m. Monad m => Term -> Mstatic_Hs m
     , canonical :: Term
     }
 
@@ -129,12 +125,12 @@ data RelationDef_ (stage :: Type)
 -- ## RuleDef
 --------------------------------------------------------------------------------
 type RuleDef
-  = RuleDef_ CoreStage
+  = RuleDef_ Void
 
-data RuleDef_ (stage :: Type)
+data RuleDef_ (sugar :: Type)
   = RuleDef
-    { doc :: forall m. Maybe (MRender_Hs m)
-    , rule :: Rule_ stage MetaVarName
+    { doc :: forall m. Maybe (Mstatic_Hs m)
+    , rule :: Rule_ sugar MetaVarName
     }
 
 --------------------------------------------------------------------------------
@@ -142,28 +138,28 @@ data RuleDef_ (stage :: Type)
 --------------------------------------------------------------------------------
 -- TODO: other user-specified optimizations go here
 type FixpointDef
-  = FixpointDef_ CoreStage
+  = FixpointDef_ Void
 
-data FixpointDef_ (stage :: Type)
+data FixpointDef_ (sugar :: Type)
   = FixpointDef
-    { doc :: forall m. Maybe (MRender_Hs m)
-    -- | The user can optimize the order in which `Prop`s of a `Relation` are
-    -- | used via a `PoType` over that relation's domain. The `PoType`'s orering
-    -- | will be used to order the `Prop`s of the `Relation` as they are
-    -- | inserted into the queue.
-    , queue_relation_potypes :: Map RelationName (PoType_ stage)
+    { doc :: forall m. Maybe (Mstatic_Hs m)
+    --| The user can optimize the order in which `Prop`s of a `Relation` are
+    --| used via a `PoType` over that relation's domain. The `PoType`'s orering
+    --| will be used to order the `Prop`s of the `Relation` as they are
+    --| inserted into the queue.
+    , queue_relation_potypes :: Map RelationName (PoType_ sugar)
     }
 
 --------------------------------------------------------------------------------
 -- ## Rule
 --------------------------------------------------------------------------------
 type Rule
-  = Rule_ CoreStage MetaVarName
+  = Rule_ Void MetaVarName
 
-data Rule_ (stage :: Type) x
+data Rule_ (sugar :: Type) x
   = Rule
-    { hypotheses :: List (Hypothesis_ stage x)
-    , conclusion :: Prop_ stage x
+    { hypotheses :: List (Hypothesis_ sugar x)
+    , conclusion :: Prop_ sugar x
     }
 
 --------------------------------------------------------------------------------
@@ -172,59 +168,67 @@ data Rule_ (stage :: Type) x
 type RipeRule
   = RipeRule_ MetaVarName
 
--- | Note that `RipeRule` will only be used during interpretation, so it can
--- | only exist at `CoreStage`.
+--| Note that `RipeRule` will only be used during interpretation, so it can
+--| only exist at `Void`.
 data RipeRule_ x
   = RipeRule
-    { hypothesis :: Hypothesis_ CoreStage x
-    , rule :: Rule_ CoreStage x
+    { hypothesis :: Hypothesis_ Void x
+    , rule :: Rule_ Void x
     }
 
 --------------------------------------------------------------------------------
 -- ## Hypothesis
 --------------------------------------------------------------------------------
 type Hypothesis
-  = Hypothesis_ CoreStage MetaVarName
+  = Hypothesis_ Void MetaVarName
 
-data Hypothesis_ (stage :: Type) x
-  = Hypothesis (Prop_ stage x) (Array (SideHypothesis_ stage x))
+data Hypothesis_ (sugar :: Type) x
+  = Hypothesis (Prop_ sugar x) (Array (SideHypothesis_ sugar x))
 
 --------------------------------------------------------------------------------
 -- ### SideHypothesis
 --------------------------------------------------------------------------------
 type SideHypothesis
-  = SideHypothesis_ CoreStage MetaVarName
+  = SideHypothesis_ Void MetaVarName
 
-data SideHypothesis_ (stage :: Type) x
-  = FunctionEvaluationSideHypothesis -- let x = f(a, b, c)
+data SideHypothesis_ (sugar :: Type) x
+  = FunctionApplicationSideHypothesis -- let x = f(a, b, c)
     { result_name :: x -- x 
-    , function_name :: FunctionName -- f 
-    , arguments :: Array (Term_ stage x) -- a, b, c
+    , functionEvaluation :: FunctionApplication_ sugar x -- f(a, b, c) 
+    }
+
+-- | Corresponds to `f(a, b, c)`
+type FunctionApplication
+  = FunctionApplication_ Void MetaVarName
+
+type FunctionApplication_ sugar x
+  = { name :: FunctionName -- f 
+    , arguments :: Array (Term_ sugar x) -- a, b, c
     }
 
 --------------------------------------------------------------------------------
 -- ## DataType
 --------------------------------------------------------------------------------
 type DataType
-  = DataType_ CoreStage
+  = DataType_ Void
 
-data DataType_ (stage :: Type)
+data DataType_ (sugar :: Type)
   = UnitDataType
   | NamedDataType DataTypeName
-  | SumDataType (DataType_ stage) (DataType_ stage)
-  | ProdDataType (DataType_ stage) (DataType_ stage)
+  | SumDataType (DataType_ sugar) (DataType_ sugar)
+  | ProdDataType (DataType_ sugar) (DataType_ sugar)
 
 --------------------------------------------------------------------------------
 -- ## PoType
 --------------------------------------------------------------------------------
 type PoType
-  = PoType_ CoreStage
+  = PoType_ Void
 
-data PoType_ (stage :: Type)
+data PoType_ (sugar :: Type)
   = UnitPoType
   | NamedPoType PoTypeName
-  | SumPoType SumPoTypeOrdering (PoType_ stage) (PoType_ stage)
-  | ProdPoType ProdPoTypeOrdering (PoType_ stage) (PoType_ stage)
+  | SumPoType SumPoTypeOrdering (PoType_ sugar) (PoType_ sugar)
+  | ProdPoType ProdPoTypeOrdering (PoType_ sugar) (PoType_ sugar)
 
 data SumPoTypeOrdering
   = LeftGreaterThanRight_SumPoTypeOrdering
@@ -241,24 +245,28 @@ data ProdPoTypeOrdering
 -- ## Prop
 --------------------------------------------------------------------------------
 type Prop
-  = Prop_ CoreStage MetaVarName
+  = Prop_ Void MetaVarName
 
-data Prop_ (stage :: Type) x
-  = Prop { name :: RelationName, term :: Term_ stage x }
+data Prop_ (sugar :: Type) x
+  = Prop { name :: RelationName, term :: Term_ sugar x }
 
 --------------------------------------------------------------------------------
 -- ## Term
 --------------------------------------------------------------------------------
 type Term
-  = Term_ CoreStage MetaVarName
+  = Term_ Void MetaVarName
 
-data Term_ (stage :: Type) x
+data Term_ (sugar :: Type) x
   = ExternalTerm { name :: DataTypeName, value :: Exists Identity }
   | MetaVarTerm x
   | UnitTerm
-  | LeftTerm (Term_ stage x)
-  | RightTerm (Term_ stage x)
-  | PairTerm (Term_ stage x) (Term_ stage x)
+  | LeftTerm (Term_ sugar x)
+  | RightTerm (Term_ sugar x)
+  | PairTerm (Term_ sugar x) (Term_ sugar x)
+  | SugarTerm sugar (SugarTerm x)
+
+data SugarTerm x
+  = FunctionApplicationTerm (FunctionApplication_ Unit x)
 
 --------------------------------------------------------------------------------
 -- ## VarSubst
@@ -267,10 +275,10 @@ type MetaVarSubst
   = MetaVarSubst_ MetaVarName
 
 type MetaVarSubst_ x
-  = Map MetaVarName (Term_ CoreStage x)
+  = Map MetaVarName (Term_ Void x)
 
 class ApplyMetaVarSubst a where
-  applyMetaVarSubst :: MetaVarSubst -> a -> MInterp a
+  applyMetaVarSubst :: MetaVarSubst -> a -> Mdynamic a
 
 instance _ApplyMetaVarSubst_Term_Term :: ApplyMetaVarSubst Term where
   applyMetaVarSubst = todo "ApplyMetaVarSubst Term Term"
@@ -290,7 +298,7 @@ instance _ApplyMetaVarSubst_SideHypothesis_SideHypothesis :: ApplyMetaVarSubst S
 instance _ApplyMetaVarSubst_Prop_Prop :: ApplyMetaVarSubst Prop where
   applyMetaVarSubst = todo "ApplyMetaVarSubst Prop Prop"
 
-saturateMetaVarSubst :: MetaVarSubst -> MInterp (Result MetaVarSubst)
+saturateMetaVarSubst :: MetaVarSubst -> Mdynamic (Result MetaVarSubst)
 saturateMetaVarSubst = todo "saturateMetaVarSubst"
 
 --------------------------------------------------------------------------------
@@ -331,8 +339,15 @@ type FixpointName
 --------------------------------------------------------------------------------
 -- ## MetaVarName
 --------------------------------------------------------------------------------
+--| `MetaVarName`:
+--|   - `label: Left label` means that `label` is statically generated rather 
+--|     than given by the user.
+--|   - `label: Right label` means that `label` is given by the user.
 newtype MetaVarName
-  = MetaVarName { label :: String, freshity :: Int }
+  = MetaVarName
+  { label :: Either String String
+  , freshity :: Int
+  }
 
 derive instance _Newtype_MetaVarName :: Newtype MetaVarName _
 
@@ -342,91 +357,79 @@ derive newtype instance _Eq_MetaVarName :: Eq MetaVarName
 
 derive newtype instance _Ord_MetaVarName :: Ord MetaVarName
 
---------------------------------------------------------------------------------
--- ## M(onad)
---------------------------------------------------------------------------------
--- | The monad for interpretation computations. Has the following effects:
--- |   - `MonadReader Ctx`
--- |   - `MonadWriter (Array Log)`
--- |   - `MonadExcept Exc`
--- |   - `MonadState Env`
--- |   - `MonadAff`
--- | 
--- | Throwing an `Exc` corresponds to an invalid input (assuming implementation 
--- | is correct).
-type MInterp
-  = MRender MInterp_
+freshenMetaVarName :: MetaVarName -> Mdynamic MetaVarName
+freshenMetaVarName (MetaVarName { label }) = do
+  Env { next_freshity } <- State.modify (Newtype.over Env \env -> env { next_freshity = env.next_freshity + 1 })
+  pure (MetaVarName { label, freshity: next_freshity })
 
-type MInterp_
-  = StateT Env Aff
+staticMetaVarName :: String -> MetaVarName
+staticMetaVarName label = MetaVarName { label: Left label, freshity: 0 }
 
--- | The monad for rendering computations. Has the following effects:
--- |   - `MonadReader Ctx`
--- |   - `MonadWriter (Array Log)`
--- |   - `MonadExcept Exc`
-type MRender (m :: Type -> Type)
-  = ReaderT Ctx (ExceptT Exc (WriterT (Array Log) m))
+userMetaVarName :: String -> MetaVarName
+userMetaVarName label = MetaVarName { label: Right label, freshity: 0 }
 
 --------------------------------------------------------------------------------
--- ### Ctx
+-- ## Desugar
 --------------------------------------------------------------------------------
-newtype Ctx
-  = Ctx
-  { focusModule :: Module
-  }
+class Desugar a b | a -> b where
+  desugar :: forall m. Monad m => a -> Mstatic m b
 
-lookup_focusModule ::
-  forall k v.
-  Ord k =>
-  Render MInterp_ k =>
-  MInterp_Hs -> (_ -> Map k v) -> k -> MInterp v
-lookup_focusModule source get_field name = do
-  Ctx { focusModule: Module mod } <- ask
-  case mod # get_field # Map.lookup name of
-    Nothing -> do
-      source <- source
-      message <- Prose "Unknown " ⊕ name ⊕ pempty
-      throwError $ Exc { source, message }
-    Just v -> pure v
-
---------------------------------------------------------------------------------
--- ### Env
---------------------------------------------------------------------------------
-newtype Env
-  = Env {}
-
---------------------------------------------------------------------------------
--- ### Log
---------------------------------------------------------------------------------
-data Log
-  = Log { label :: Hs, message :: Hs }
-
---------------------------------------------------------------------------------
--- ### Exc
---------------------------------------------------------------------------------
-data Exc
-  = Exc { source :: Hs, message :: Hs }
-
-throwExcM :: forall m a. Monad m => MRender_Hs m -> MRender_Hs m -> MRender m a
-throwExcM m_source m_message = do
-  source <- m_source
-  message <- m_message
-  throwError (Exc { source, message })
+instance _Desugar_Term ::
+  Desugar
+    (Term_ Unit MetaVarName)
+    (State (Array FunctionApplication) Term) where
+  desugar = case _ of
+    ExternalTerm ext -> ExternalTerm ext # pure # pure
+    MetaVarTerm x -> MetaVarTerm x # pure # pure
+    UnitTerm -> UnitTerm # pure # pure
+    LeftTerm tm -> do
+      st_tm <- tm # desugar
+      pure do
+        LeftTerm <$> st_tm
+    RightTerm tm -> do
+      st_tm <- tm # desugar
+      pure do
+        RightTerm <$> st_tm
+    PairTerm tm1 tm2 -> do
+      st_tm1 <- tm1 # desugar
+      st_tm2 <- tm2 # desugar
+      pure do
+        PairTerm <$> st_tm1 <*> st_tm2
+    -- Be careful to append function applications to state in inside-out order.
+    -- In other words, inner (nested) function applications should be included
+    -- first before outer function applications, which will result in the inner
+    -- function applications actually being evaluated first. That's correct
+    -- since a function's arguments should be evaluated _before_ the function's
+    -- application is evaluated.
+    SugarTerm _ (FunctionApplicationTerm { name, arguments }) -> do
+      st_arguments <-
+        arguments
+          # traverse desugar
+          # map sequence
+      pure do
+        -- desugar arguments
+        st_arguments >>= \arguments -> State.modify_ (_ `Array.snoc` { name, arguments })
+        -- then desugar this function application
+        MetaVarTerm <$> function_application_name <$> State.get
+    where
+    function_application_name fs = staticMetaVarName ("function application #" <> show (Array.length fs))
 
 --------------------------------------------------------------------------------
 -- ## Render
+-- TODO: I will have to define the `Render` instances for the `Sugar = Unit`
+-- versions of the syntax also.
 --------------------------------------------------------------------------------
 class Render m a where
-  render :: a -> MRender_Hs m
+  render :: a -> Mstatic_Hs m
 
 type Hs
   = Array PlainHTML
 
-type MRender_Hs m
-  = MRender m Hs
+type Mstatic_Hs m
+  = Mstatic m Hs
 
-type MInterp_Hs
-  = MInterp Hs
+type Mdynamic_Hs
+  = Mdynamic Hs
 
 instance _Render_PlainHTML :: Monad m => Render m PlainHTML where
   render = pure >>> pure
@@ -434,10 +437,10 @@ instance _Render_PlainHTML :: Monad m => Render m PlainHTML where
 instance _Render_Hs :: Monad m => Render m Hs where
   render = pure
 
-instance _Render_MRender_Hs :: Monad m => Render m (MRender_Hs m) where
+instance _Render_Mstatic_Hs :: Monad m => Render m (Mstatic_Hs m) where
   render = identity
 
-append_render :: forall m a. Monad m => Render m a => a -> MRender_Hs m -> MRender_Hs m
+append_render :: forall m a. Monad m => Render m a => a -> Mstatic_Hs m -> Mstatic_Hs m
 append_render a m_htmls = do
   htmls <- a # render
   append htmls <$> m_htmls
@@ -509,6 +512,83 @@ instance _Render_StaticName :: Monad m => Render m (StaticName sort) where
 
 instance _Render_MetaVarName :: Monad m => Render m MetaVarName where
   render = todo "Render MetaVarName"
+
+--------------------------------------------------------------------------------
+-- ## M(onad)
+--------------------------------------------------------------------------------
+--| The monad for interpretation computations. Has the following effects:
+--|   - `MonadReader Ctx`
+--|   - `MonadWriter (Array Log)`
+--|   - `MonadExcept Exc`
+--|   - `MonadState Env`
+--|   - `MonadAff`
+--| 
+--| Throwing an `Exc` corresponds to an invalid input (assuming implementation 
+--| is correct).
+type Mdynamic
+  = Mstatic Mdynamic_
+
+type Mdynamic_
+  = StateT Env Aff
+
+--| The monad for rendering computations. Has the following effects:
+--|   - `MonadReader Ctx`
+--|   - `MonadWriter (Array Log)`
+--|   - `MonadExcept Exc`
+type Mstatic (m :: Type -> Type)
+  = ReaderT Ctx (ExceptT Exc (WriterT (Array Log) m))
+
+--------------------------------------------------------------------------------
+-- ### Ctx
+--------------------------------------------------------------------------------
+newtype Ctx
+  = Ctx
+  { focusModule :: Module
+  }
+
+derive instance _Newtype_Ctx :: Newtype Ctx _
+
+lookup_focusModule ::
+  forall k v.
+  Ord k =>
+  Render Mdynamic_ k =>
+  Mdynamic_Hs -> (_ -> Map k v) -> k -> Mdynamic v
+lookup_focusModule source get_field name = do
+  Ctx { focusModule: Module mod } <- ask
+  case mod # get_field # Map.lookup name of
+    Nothing -> do
+      source <- source
+      message <- Prose "Unknown " ⊕ name ⊕ pempty
+      throwError $ Exc { source, message }
+    Just v -> pure v
+
+--------------------------------------------------------------------------------
+-- ### Env
+--------------------------------------------------------------------------------
+newtype Env
+  = Env { next_freshity :: Int }
+
+_next_freshity = Proxy :: Proxy "next_freshity"
+
+derive instance _Newtype_Env :: Newtype Env _
+
+--------------------------------------------------------------------------------
+-- ### Log
+--------------------------------------------------------------------------------
+newtype Log
+  = Log { label :: Hs, message :: Hs }
+
+--------------------------------------------------------------------------------
+-- ### Exc
+--------------------------------------------------------------------------------
+newtype Exc
+  = Exc { source :: Hs, message :: Hs }
+
+throwExcM :: forall m a. Monad m => Mstatic_Hs m -> Mstatic_Hs m -> Mstatic m a
+throwExcM m_source m_message = do
+  source <- m_source
+  message <- m_message
+  throwError (Exc { source, message })
 
 --------------------------------------------------------------------------------
 -- ## Result
