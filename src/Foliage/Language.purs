@@ -34,30 +34,24 @@ import Unsafe.Coerce (unsafeCoerce)
 --------------------------------------------------------------------------------
 -- ## Module
 --------------------------------------------------------------------------------
-type Module
-  = Module_ Void
-
-data Module_ (sugar :: Type)
+data Module
   = Module
     { name :: ModuleName
     , doc :: forall m. Maybe (Mstatic_Hs m)
-    , dataTypeDefs :: Map DataTypeName (DataTypeDef_ sugar)
-    , poTypeDefs :: Map PoTypeName (PoTypeDef_ sugar)
-    , functionDefs :: Map FunctionName (FunctionDef_ sugar)
-    , relationDefs :: Map RelationName (RelationDef_ sugar)
-    , ruleDefs :: Map RuleName (RuleDef_ sugar)
-    , fixpointDefs :: Map FixpointName (FixpointDef_ sugar)
+    , dataTypeDefs :: Map DataTypeName (DataTypeDef)
+    , poTypeDefs :: Map PoTypeName (PoTypeDef)
+    , functionDefs :: Map FunctionName (FunctionDef)
+    , relationDefs :: Map RelationName (RelationDef)
+    , ruleDefs :: Map RuleName (RuleDef)
+    , fixpointDefs :: Map FixpointName (FixpointDef)
     }
 
 --------------------------------------------------------------------------------
 -- ## DataTypeDef
 --------------------------------------------------------------------------------
-type DataTypeDef
-  = DataTypeDef_ Void
-
-data DataTypeDef_ (sugar :: Type)
+data DataTypeDef
   = DataTypeDef
-    { doc :: forall m. Maybe (Mstatic_Hs m), dataType :: DataType_ sugar
+    { doc :: forall m. Maybe (Mstatic_Hs m), dataType :: DataType_
     }
   | ExternalDataTypeDef
     { doc :: forall m. Maybe (Mstatic_Hs m)
@@ -65,7 +59,7 @@ data DataTypeDef_ (sugar :: Type)
     }
 
 newtype ExternalDataTypeDef_Represented repr
-  = DataTypeDefRepresented
+  = DataTypeDef_Represented
   { to :: repr -> Term
   , from :: Term -> Either String repr
   , render :: forall m. Monad m => repr -> Mstatic_Hs m
@@ -75,49 +69,40 @@ newtype ExternalDataTypeDef_Represented repr
 --------------------------------------------------------------------------------
 -- ## PoTypeDef
 --------------------------------------------------------------------------------
-type PoTypeDef
-  = PoTypeDef_ Void
-
-data PoTypeDef_ (sugar :: Type)
+data PoTypeDef
   = PoTypeDef
     { doc :: forall m. Maybe (Mstatic_Hs m)
-    , poType :: PoType_ sugar
+    , poType :: PoType
     }
   | ExternalPoTypeDef
     { doc :: forall m. Maybe (Mstatic_Hs m)
-    , dataType :: DataType_ sugar -- underlying dataType
+    , dataType :: DataType_ -- underlying dataType
     , represented :: Exists ExternalPoTypeDef_Represented
     }
 
 newtype ExternalPoTypeDef_Represented repr
-  = ExternalPoTypeDefRepresented
+  = ExternalPoTypeDef_Represented
   { compare :: repr -> repr -> Ordering
   }
 
 --------------------------------------------------------------------------------
 -- ## FunctionDef
 --------------------------------------------------------------------------------
-type FunctionDef
-  = FunctionDef_ Void
-
-data FunctionDef_ (sugar :: Type)
+data FunctionDef
   = ExternalFunctionDef
     { doc :: forall m. Maybe (Mstatic_Hs m)
     , label :: String
-    , signature :: { inputs :: Array (DataType_ sugar), output :: DataType_ sugar }
+    , signature :: { inputs :: Array (DataType), output :: DataType_ }
     , implementation :: Term -> Either String Term
     }
 
 --------------------------------------------------------------------------------
 -- ## RelationDef
 --------------------------------------------------------------------------------
-type RelationDef
-  = RelationDef_ Void
-
-data RelationDef_ (sugar :: Type)
+data RelationDef
   = RelationDef
     { doc :: forall m. Maybe (Mstatic_Hs m)
-    , poType :: PoType_ sugar -- underlying poType
+    , poType :: PoType -- underlying poType
     , render :: forall m. Monad m => Term -> Mstatic_Hs m
     , canonical :: Term
     }
@@ -125,42 +110,36 @@ data RelationDef_ (sugar :: Type)
 --------------------------------------------------------------------------------
 -- ## RuleDef
 --------------------------------------------------------------------------------
-type RuleDef
-  = RuleDef_ Void
-
-data RuleDef_ (sugar :: Type)
+data RuleDef
   = RuleDef
     { doc :: forall m. Maybe (Mstatic_Hs m)
-    , rule :: Rule_ sugar MetaVarName
+    , rule :: Rule_ MetaVarName
     }
 
 --------------------------------------------------------------------------------
 -- ## FixpointDef
 --------------------------------------------------------------------------------
 -- TODO: other user-specified optimizations go here
-type FixpointDef
-  = FixpointDef_ Void
-
-data FixpointDef_ (sugar :: Type)
+data FixpointDef
   = FixpointDef
     { doc :: forall m. Maybe (Mstatic_Hs m)
     --| The user can optimize the order in which `Prop`s of a `Relation` are
     --| used via a `PoType` over that relation's domain. The `PoType`'s orering
     --| will be used to order the `Prop`s of the `Relation` as they are
     --| inserted into the queue.
-    , queue_relation_potypes :: Map RelationName (PoType_ sugar)
+    , queue_relation_potypes :: Map RelationName (PoType)
     }
 
 --------------------------------------------------------------------------------
 -- ## Rule
 --------------------------------------------------------------------------------
 type Rule
-  = Rule_ Void MetaVarName
+  = Rule_ MetaVarName
 
-data Rule_ (sugar :: Type) x
+data Rule_ x
   = Rule
-    { hypotheses :: List (Hypothesis_ sugar x)
-    , conclusion :: Prop_ sugar x
+    { hypotheses :: List (Hypothesis_ x)
+    , conclusion :: Prop_ x
     }
 
 --------------------------------------------------------------------------------
@@ -173,63 +152,60 @@ type RipeRule
 --| only exist at `Void`.
 data RipeRule_ x
   = RipeRule
-    { hypothesis :: Hypothesis_ Void x
-    , rule :: Rule_ Void x
+    { hypothesis :: Hypothesis_ x
+    , rule :: Rule_ x
     }
 
 --------------------------------------------------------------------------------
 -- ## Hypothesis
 --------------------------------------------------------------------------------
 type Hypothesis
-  = Hypothesis_ Void MetaVarName
+  = Hypothesis_ MetaVarName
 
-data Hypothesis_ (sugar :: Type) x
-  = Hypothesis (Prop_ sugar x) (Array (SideHypothesis_ sugar x))
+data Hypothesis_ x
+  = Hypothesis (Prop_ x) (Array (SideHypothesis_ x))
 
 --------------------------------------------------------------------------------
 -- ### SideHypothesis
 --------------------------------------------------------------------------------
 type SideHypothesis
-  = SideHypothesis_ Void MetaVarName
+  = SideHypothesis_ MetaVarName
 
-data SideHypothesis_ (sugar :: Type) x
+data SideHypothesis_ x
   = FunctionApplicationSideHypothesis -- let x = f(a, b, c)
     { result_name :: x -- x 
-    , functionEvaluation :: FunctionApplication_ sugar x -- f(a, b, c) 
+    , functionEvaluation :: FunctionApplication_ x -- f(a, b, c) 
     }
 
 -- | Corresponds to `f(a, b, c)`
 type FunctionApplication
-  = FunctionApplication_ Void MetaVarName
+  = FunctionApplication_ MetaVarName
 
-type FunctionApplication_ sugar x
+type FunctionApplication_ x
   = { name :: FunctionName -- f 
-    , arguments :: Array (Term_ sugar x) -- a, b, c
+    , arguments :: Array (Term_ x) -- a, b, c
     }
 
 --------------------------------------------------------------------------------
 -- ## DataType
 --------------------------------------------------------------------------------
 type DataType
-  = DataType_ Void
+  = DataType_
 
-data DataType_ (sugar :: Type)
+data DataType_
   = UnitDataType
   | NamedDataType DataTypeName
-  | SumDataType (DataType_ sugar) (DataType_ sugar)
-  | ProdDataType (DataType_ sugar) (DataType_ sugar)
+  | SumDataType (DataType) (DataType)
+  | ProdDataType (DataType) (DataType)
 
 --------------------------------------------------------------------------------
 -- ## PoType
 --------------------------------------------------------------------------------
-type PoType
-  = PoType_ Void
-
-data PoType_ (sugar :: Type)
+data PoType
   = UnitPoType
   | NamedPoType PoTypeName
-  | SumPoType SumPoTypeOrdering (PoType_ sugar) (PoType_ sugar)
-  | ProdPoType ProdPoTypeOrdering (PoType_ sugar) (PoType_ sugar)
+  | SumPoType SumPoTypeOrdering (PoType) (PoType)
+  | ProdPoType ProdPoTypeOrdering (PoType) (PoType)
 
 data SumPoTypeOrdering
   = LeftGreaterThanRight_SumPoTypeOrdering
@@ -246,28 +222,24 @@ data ProdPoTypeOrdering
 -- ## Prop
 --------------------------------------------------------------------------------
 type Prop
-  = Prop_ Void MetaVarName
+  = Prop_ MetaVarName
 
-data Prop_ (sugar :: Type) x
-  = Prop { name :: RelationName, term :: Term_ sugar x }
+data Prop_ x
+  = Prop { name :: RelationName, term :: Term_ x }
 
 --------------------------------------------------------------------------------
 -- ## Term
 --------------------------------------------------------------------------------
 type Term
-  = Term_ Void MetaVarName
+  = Term_ MetaVarName
 
-data Term_ (sugar :: Type) x
+data Term_ x
   = ExternalTerm { name :: DataTypeName, value :: Exists Identity }
   | MetaVarTerm x
   | UnitTerm
-  | LeftTerm (Term_ sugar x)
-  | RightTerm (Term_ sugar x)
-  | PairTerm (Term_ sugar x) (Term_ sugar x)
-  | SugarTerm sugar (SugarTerm x)
-
-data SugarTerm x
-  = FunctionApplicationTerm (FunctionApplication_ Unit x)
+  | LeftTerm (Term_ x)
+  | RightTerm (Term_ x)
+  | PairTerm (Term_ x) (Term_ x)
 
 --------------------------------------------------------------------------------
 -- ## VarSubst
@@ -276,7 +248,7 @@ type MetaVarSubst
   = MetaVarSubst_ MetaVarName
 
 type MetaVarSubst_ x
-  = Map MetaVarName (Term_ Void x)
+  = Map MetaVarName (Term_ x)
 
 class ApplyMetaVarSubst a where
   applyMetaVarSubst :: MetaVarSubst -> a -> Mdynamic a
@@ -368,52 +340,6 @@ staticMetaVarName label = MetaVarName { label: Left label, freshity: 0 }
 
 userMetaVarName :: String -> MetaVarName
 userMetaVarName label = MetaVarName { label: Right label, freshity: 0 }
-
---------------------------------------------------------------------------------
--- ## Desugar
---------------------------------------------------------------------------------
-class Desugar a b | a -> b where
-  desugar :: forall m. Monad m => a -> Mstatic m b
-
-instance _Desugar_Term ::
-  Desugar
-    (Term_ Unit MetaVarName)
-    (State (Array FunctionApplication) Term) where
-  desugar = case _ of
-    ExternalTerm ext -> ExternalTerm ext # pure # pure
-    MetaVarTerm x -> MetaVarTerm x # pure # pure
-    UnitTerm -> UnitTerm # pure # pure
-    LeftTerm tm -> do
-      st_tm <- tm # desugar
-      pure do
-        LeftTerm <$> st_tm
-    RightTerm tm -> do
-      st_tm <- tm # desugar
-      pure do
-        RightTerm <$> st_tm
-    PairTerm tm1 tm2 -> do
-      st_tm1 <- tm1 # desugar
-      st_tm2 <- tm2 # desugar
-      pure do
-        PairTerm <$> st_tm1 <*> st_tm2
-    -- Be careful to append function applications to state in inside-out order.
-    -- In other words, inner (nested) function applications should be included
-    -- first before outer function applications, which will result in the inner
-    -- function applications actually being evaluated first. That's correct
-    -- since a function's arguments should be evaluated _before_ the function's
-    -- application is evaluated.
-    SugarTerm _ (FunctionApplicationTerm { name, arguments }) -> do
-      st_arguments <-
-        arguments
-          # traverse desugar
-          # map sequence
-      pure do
-        -- desugar arguments
-        st_arguments >>= \arguments -> State.modify_ (_ `Array.snoc` { name, arguments })
-        -- then desugar this function application
-        MetaVarTerm <$> function_application_name <$> State.get
-    where
-    function_application_name fs = staticMetaVarName ("function application #" <> show (Array.length fs))
 
 --------------------------------------------------------------------------------
 -- ## Render
