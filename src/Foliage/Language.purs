@@ -1,3 +1,6 @@
+--------------------------------------------------------------------------------
+-- # Language
+--------------------------------------------------------------------------------
 module Foliage.Language where
 
 import Prelude
@@ -21,58 +24,71 @@ import Halogen.HTML as HH
 import Unsafe (todo)
 
 --------------------------------------------------------------------------------
--- ## Meta
+-- ## Stage
 --------------------------------------------------------------------------------
-newtype Documented a
-  = Documented { it :: a, doc :: forall m. Monad m => Maybe (MHs m) }
+-- | Stage where syntax includes syntax sugar.
+type SugarStage
+  = Unit
+
+-- | Stage where syntax is fully expanded.
+type CoreStage
+  = Void
 
 --------------------------------------------------------------------------------
 -- ## Module
 --------------------------------------------------------------------------------
-data Module
+type Module
+  = Module_ CoreStage
+
+data Module_ (stage :: Type)
   = Module
-    { name :: StaticName
-    , datatypeDefs :: Map StaticName DataTypeDef
-    , potypeDefs :: Map StaticName PoTypeDef
-    , functionDefs :: Map StaticName FunctionDef
-    , relationDefs :: Map StaticName RelationDef
-    , ruleDefs :: Map StaticName RuleDef
+    { name :: ModuleName
+    , doc :: forall m. Maybe (MRender_Hs m)
+    , dataTypeDefs :: Map DataTypeName (DataTypeDef_ stage)
+    , poTypeDefs :: Map PoTypeName (PoTypeDef_ stage)
+    , functionDefs :: Map FunctionName (FunctionDef_ stage)
+    , relationDefs :: Map RelationName (RelationDef_ stage)
+    , ruleDefs :: Map RuleName (RuleDef_ stage)
+    , fixpointDefs :: Map FixpointName (FixpointDef_ stage)
     }
 
 --------------------------------------------------------------------------------
 -- ## DataTypeDef
 --------------------------------------------------------------------------------
-data DataTypeDef
-  = DataTypeDef DataType
+type DataTypeDef
+  = DataTypeDef_ CoreStage
+
+data DataTypeDef_ (stage :: Type)
+  = DataTypeDef
+    { doc :: forall m. Maybe (MRender_Hs m), dataType :: DataType_ stage
+    }
   | ExternalDataTypeDef
-    { represented :: Exists ExternalDataTypeDef_Represented
+    { doc :: forall m. Maybe (MRender_Hs m)
+    , represented :: Exists ExternalDataTypeDef_Represented
     }
 
 newtype ExternalDataTypeDef_Represented repr
   = DataTypeDefRepresented
   { to :: repr -> Term
   , from :: Term -> Either String repr
-  , render :: forall m. Monad m => repr -> MHs m
+  , render :: forall m. Monad m => repr -> MRender_Hs m
   , canonical :: repr
   }
 
 --------------------------------------------------------------------------------
--- ## DataType
---------------------------------------------------------------------------------
-data DataType
-  = UnitDataType
-  | NamedDataType StaticName
-  | SumDataType DataType DataType
-  | ProdDataType DataType DataType
-
-
---------------------------------------------------------------------------------
 -- ## PoTypeDef
 --------------------------------------------------------------------------------
-data PoTypeDef
-  = PoTypeDef PoType
+type PoTypeDef
+  = PoTypeDef_ CoreStage
+
+data PoTypeDef_ (stage :: Type)
+  = PoTypeDef
+    { doc :: forall m. Maybe (MRender_Hs m)
+    , poType :: PoType_ stage
+    }
   | ExternalPoTypeDef
-    { datatype :: DataType -- underlying datatype
+    { doc :: forall m. Maybe (MRender_Hs m)
+    , dataType :: DataType_ stage -- underlying dataType
     , represented :: Exists ExternalPoTypeDef_Represented
     }
 
@@ -82,13 +98,133 @@ newtype ExternalPoTypeDef_Represented repr
   }
 
 --------------------------------------------------------------------------------
+-- ## FunctionDef
+--------------------------------------------------------------------------------
+type FunctionDef
+  = FunctionDef_ CoreStage
+
+data FunctionDef_ (stage :: Type)
+  = ExternalFunctionDef
+    { doc :: forall m. Maybe (MRender_Hs m)
+    , label :: String
+    , signature :: { inputs :: Array (DataType_ stage), output :: DataType_ stage }
+    , implementation :: Term -> Either String Term
+    }
+
+--------------------------------------------------------------------------------
+-- ## RelationDef
+--------------------------------------------------------------------------------
+type RelationDef
+  = RelationDef_ CoreStage
+
+data RelationDef_ (stage :: Type)
+  = RelationDef
+    { doc :: forall m. Maybe (MRender_Hs m)
+    , poType :: PoType_ stage -- underlying poType
+    , render :: forall m. Monad m => Term -> MRender_Hs m
+    , canonical :: Term
+    }
+
+--------------------------------------------------------------------------------
+-- ## RuleDef
+--------------------------------------------------------------------------------
+type RuleDef
+  = RuleDef_ CoreStage
+
+data RuleDef_ (stage :: Type)
+  = RuleDef
+    { doc :: forall m. Maybe (MRender_Hs m)
+    , rule :: Rule_ stage MetaVarName
+    }
+
+--------------------------------------------------------------------------------
+-- ## FixpointDef
+--------------------------------------------------------------------------------
+-- TODO: other user-specified optimizations go here
+type FixpointDef
+  = FixpointDef_ CoreStage
+
+data FixpointDef_ (stage :: Type)
+  = FixpointDef
+    { doc :: forall m. Maybe (MRender_Hs m)
+    -- | The user can optimize the order in which `Prop`s of a `Relation` are
+    -- | used via a `PoType` over that relation's domain. The `PoType`'s orering
+    -- | will be used to order the `Prop`s of the `Relation` as they are
+    -- | inserted into the queue.
+    , queue_relation_potypes :: Map RelationName (PoType_ stage)
+    }
+
+--------------------------------------------------------------------------------
+-- ## Rule
+--------------------------------------------------------------------------------
+type Rule
+  = Rule_ CoreStage MetaVarName
+
+data Rule_ (stage :: Type) x
+  = Rule
+    { hypotheses :: List (Hypothesis_ stage x)
+    , conclusion :: Prop_ stage x
+    }
+
+--------------------------------------------------------------------------------
+-- ## RipeRule
+--------------------------------------------------------------------------------
+type RipeRule
+  = RipeRule_ MetaVarName
+
+-- | Note that `RipeRule` will only be used during interpretation, so it can
+-- | only exist at `CoreStage`.
+data RipeRule_ x
+  = RipeRule
+    { hypothesis :: Hypothesis_ CoreStage x
+    , rule :: Rule_ CoreStage x
+    }
+
+--------------------------------------------------------------------------------
+-- ## Hypothesis
+--------------------------------------------------------------------------------
+type Hypothesis
+  = Hypothesis_ CoreStage MetaVarName
+
+data Hypothesis_ (stage :: Type) x
+  = Hypothesis (Prop_ stage x) (Array (SideHypothesis_ stage x))
+
+--------------------------------------------------------------------------------
+-- ### SideHypothesis
+--------------------------------------------------------------------------------
+type SideHypothesis
+  = SideHypothesis_ CoreStage MetaVarName
+
+data SideHypothesis_ (stage :: Type) x
+  = FunctionEvaluationSideHypothesis -- let x = f(a, b, c)
+    { result_name :: x -- x 
+    , function_name :: FunctionName -- f 
+    , arguments :: Array (Term_ stage x) -- a, b, c
+    }
+
+--------------------------------------------------------------------------------
+-- ## DataType
+--------------------------------------------------------------------------------
+type DataType
+  = DataType_ CoreStage
+
+data DataType_ (stage :: Type)
+  = UnitDataType
+  | NamedDataType DataTypeName
+  | SumDataType (DataType_ stage) (DataType_ stage)
+  | ProdDataType (DataType_ stage) (DataType_ stage)
+
+--------------------------------------------------------------------------------
 -- ## PoType
 --------------------------------------------------------------------------------
-data PoType
+type PoType
+  = PoType_ CoreStage
+
+data PoType_ (stage :: Type)
   = UnitPoType
-  | NamedPoType StaticName
-  | SumPoType SumPoTypeOrdering PoType PoType
-  | ProdPoType ProdPoTypeOrdering PoType PoType
+  | NamedPoType PoTypeName
+  | SumPoType SumPoTypeOrdering (PoType_ stage) (PoType_ stage)
+  | ProdPoType ProdPoTypeOrdering (PoType_ stage) (PoType_ stage)
 
 data SumPoTypeOrdering
   = LeftGreaterThanRight_SumPoTypeOrdering
@@ -102,126 +238,134 @@ data ProdPoTypeOrdering
   | FirstAndSecond_ProdPoTypeOrdering
 
 --------------------------------------------------------------------------------
--- ## FunctionDef
---------------------------------------------------------------------------------
-data FunctionDef
-  = ExternalFunctionDef
-    { label :: String
-    , signature :: { inputs :: Array DataType, output :: DataType }
-    , implementation :: Term -> Either String Term
-    }
-
---------------------------------------------------------------------------------
--- ## RelationDef
---------------------------------------------------------------------------------
-data RelationDef
-  = RelationDef
-    { potype :: PoType -- underlying potype
-    , render :: forall m. Monad m => Term -> MHs m
-    , canonical :: Term
-    }
-
---------------------------------------------------------------------------------
--- ## RuleDef
---------------------------------------------------------------------------------
-data RuleDef
-  = RuleDef
-    { rule :: Rule
-    }
-
---------------------------------------------------------------------------------
--- ## Rule
---------------------------------------------------------------------------------
-type Rule
-  = RuleF VarName
-
-data RuleF x
-  = Rule
-    { hypotheses :: List (HypothesisF x)
-    , conclusion :: PropF x
-    }
-
---------------------------------------------------------------------------------
--- ## Hypothesis
---------------------------------------------------------------------------------
-type Hypothesis
-  = HypothesisF VarName
-
-data HypothesisF x
-  = Hypothesis (PropF x) (Array (SideHypothesisF x))
-
---------------------------------------------------------------------------------
--- ### SideHypothesis
---------------------------------------------------------------------------------
-type SideHypothesis
-  = SideHypothesisF VarName
-
-data SideHypothesisF x
-  = FunctionEvaluationSideHypothesis -- let x = f(a, b, c)
-    { result_name :: x
-    , function_name :: StaticName
-    , arguments :: Array (TermF x)
-    }
-
---------------------------------------------------------------------------------
 -- ## Prop
 --------------------------------------------------------------------------------
 type Prop
-  = PropF VarName
+  = Prop_ CoreStage MetaVarName
 
-data PropF x
-  = Prop { prop_name :: StaticName, term :: TermF x }
+data Prop_ (stage :: Type) x
+  = Prop { name :: RelationName, term :: Term_ stage x }
 
 --------------------------------------------------------------------------------
 -- ## Term
 --------------------------------------------------------------------------------
 type Term
-  = TermF VarName
+  = Term_ CoreStage MetaVarName
 
-data TermF x
-  = ExternalTerm { externalDataTypeName :: StaticName, value :: Exists Identity }
-  | VarTerm x
+data Term_ (stage :: Type) x
+  = ExternalTerm { name :: DataTypeName, value :: Exists Identity }
+  | MetaVarTerm x
   | UnitTerm
-  | LeftTerm (TermF x)
-  | RightTerm (TermF x)
-  | PairTerm (TermF x) (TermF x)
+  | LeftTerm (Term_ stage x)
+  | RightTerm (Term_ stage x)
+  | PairTerm (Term_ stage x) (Term_ stage x)
+
+--------------------------------------------------------------------------------
+-- ## VarSubst
+--------------------------------------------------------------------------------
+type MetaVarSubst
+  = MetaVarSubst_ MetaVarName
+
+type MetaVarSubst_ x
+  = Map MetaVarName (Term_ CoreStage x)
+
+class ApplyMetaVarSubst a where
+  applyMetaVarSubst :: MetaVarSubst -> a -> MInterp a
+
+instance _ApplyMetaVarSubst_Term_Term :: ApplyMetaVarSubst Term where
+  applyMetaVarSubst = todo "ApplyMetaVarSubst Term Term"
+
+instance _ApplyMetaVarSubst_Rule_Rule :: ApplyMetaVarSubst Rule where
+  applyMetaVarSubst = todo "ApplyMetaVarSubst Rule Rule"
+
+instance _ApplyMetaVarSubst_RipeRule_RipeRule :: ApplyMetaVarSubst RipeRule where
+  applyMetaVarSubst = todo "ApplyMetaVarSubst RipeRule RipeRule"
+
+instance _ApplyMetaVarSubst_Hypothesis_Hypothesis :: ApplyMetaVarSubst Hypothesis where
+  applyMetaVarSubst = todo "ApplyMetaVarSubst Hypothesis Hypothesis"
+
+instance _ApplyMetaVarSubst_SideHypothesis_SideHypothesis :: ApplyMetaVarSubst SideHypothesis where
+  applyMetaVarSubst = todo "ApplyMetaVarSubst SideHypothesis SideHypothesis"
+
+instance _ApplyMetaVarSubst_Prop_Prop :: ApplyMetaVarSubst Prop where
+  applyMetaVarSubst = todo "ApplyMetaVarSubst Prop Prop"
+
+saturateMetaVarSubst :: MetaVarSubst -> MInterp (Result MetaVarSubst)
+saturateMetaVarSubst = todo "saturateMetaVarSubst"
 
 --------------------------------------------------------------------------------
 -- ## StaticName
 --------------------------------------------------------------------------------
-newtype StaticName
+newtype StaticName (sort :: Symbol)
   = StaticName String
 
-derive instance _Newtype_StaticName :: Newtype StaticName _
+derive instance _Newtype_StaticName :: Newtype (StaticName sort) _
 
-derive newtype instance _Show_StaticName :: Show StaticName
+derive newtype instance _Show_StaticName :: Show (StaticName sort)
 
-derive newtype instance _Eq_StaticName :: Eq StaticName
+derive newtype instance _Eq_StaticName :: Eq (StaticName sort)
 
-derive newtype instance _Ord_StaticName :: Ord StaticName
+derive newtype instance _Ord_StaticName :: Ord (StaticName sort)
+
+type ModuleName
+  = StaticName "Module"
+
+type DataTypeName
+  = StaticName "DataType"
+
+type PoTypeName
+  = StaticName "PoType"
+
+type FunctionName
+  = StaticName "Function"
+
+type RelationName
+  = StaticName "Relation"
+
+type RuleName
+  = StaticName "Rule"
+
+type FixpointName
+  = StaticName "Fixpoint"
 
 --------------------------------------------------------------------------------
--- ## VarName
+-- ## MetaVarName
 --------------------------------------------------------------------------------
-newtype VarName
-  = VarName { label :: String, freshity :: Int }
+newtype MetaVarName
+  = MetaVarName { label :: String, freshity :: Int }
 
-derive instance _Newtype_VarName :: Newtype VarName _
+derive instance _Newtype_MetaVarName :: Newtype MetaVarName _
 
-derive newtype instance _Show_VarName :: Show VarName
+derive newtype instance _Show_MetaVarName :: Show MetaVarName
 
-derive newtype instance _Eq_VarName :: Eq VarName
+derive newtype instance _Eq_MetaVarName :: Eq MetaVarName
 
-derive newtype instance _Ord_VarName :: Ord VarName
+derive newtype instance _Ord_MetaVarName :: Ord MetaVarName
 
 --------------------------------------------------------------------------------
 -- ## M(onad)
 --------------------------------------------------------------------------------
-type M
-  = ReaderT Ctx (WriterT (Array Log) (StateT Env (ExceptT Exc Aff)))
+-- | The monad for interpretation computations. Has the following effects:
+-- |   - `MonadReader Ctx`
+-- |   - `MonadWriter (Array Log)`
+-- |   - `MonadExcept Exc`
+-- |   - `MonadState Env`
+-- |   - `MonadAff`
+-- | 
+-- | Throwing an `Exc` corresponds to an invalid input (assuming implementation 
+-- | is correct).
+type MInterp
+  = MRender MInterp_
 
-type M_Ctx (m :: Type -> Type)
-  = ReaderT Ctx m
+type MInterp_
+  = StateT Env Aff
+
+-- | The monad for rendering computations. Has the following effects:
+-- |   - `MonadReader Ctx`
+-- |   - `MonadWriter (Array Log)`
+-- |   - `MonadExcept Exc`
+type MRender (m :: Type -> Type)
+  = ReaderT Ctx (ExceptT Exc (WriterT (Array Log) m))
 
 --------------------------------------------------------------------------------
 -- ### Ctx
@@ -234,12 +378,15 @@ newtype Ctx
 lookup_focusModule ::
   forall k v.
   Ord k =>
-  Render k =>
-  Hs -> (_ -> Map k v) -> k -> M v
+  Render MInterp_ k =>
+  MInterp_Hs -> (_ -> Map k v) -> k -> MInterp v
 lookup_focusModule source get_field name = do
   Ctx { focusModule: Module mod } <- ask
   case mod # get_field # Map.lookup name of
-    Nothing -> todo "" -- throwError $ Exc { source, message: [ HH.text $ "Unknown " ] <> render name }
+    Nothing -> do
+      source <- source
+      message <- Prose "Unknown " ⊕ name ⊕ pempty
+      throwError $ Exc { source, message }
     Just v -> pure v
 
 --------------------------------------------------------------------------------
@@ -260,7 +407,7 @@ data Log
 data Exc
   = Exc { source :: Hs, message :: Hs }
 
-throwExcM :: forall a. MHs _ -> MHs _ -> M a
+throwExcM :: forall m a. Monad m => MRender_Hs m -> MRender_Hs m -> MRender m a
 throwExcM m_source m_message = do
   source <- m_source
   message <- m_message
@@ -269,90 +416,102 @@ throwExcM m_source m_message = do
 --------------------------------------------------------------------------------
 -- ## Render
 --------------------------------------------------------------------------------
-class Render a where
-  render :: forall m. Monad m => a -> MHs m
+class Render m a where
+  render :: a -> MRender_Hs m
 
 type Hs
   = Array PlainHTML
 
-type MHs m
-  = M_Ctx m Hs
+type MRender_Hs m
+  = MRender m Hs
 
-append_render :: forall m a. Monad m => Render a => a -> MHs m -> MHs m
+type MInterp_Hs
+  = MInterp Hs
+
+instance _Render_PlainHTML :: Monad m => Render m PlainHTML where
+  render = pure >>> pure
+
+instance _Render_Hs :: Monad m => Render m Hs where
+  render = pure
+
+instance _Render_MRender_Hs :: Monad m => Render m (MRender_Hs m) where
+  render = identity
+
+append_render :: forall m a. Monad m => Render m a => a -> MRender_Hs m -> MRender_Hs m
 append_render a m_htmls = do
   htmls <- a # render
   append htmls <$> m_htmls
 
 infixr 5 append_render as ⊕
 
-instance _Render_PlainHTML :: Render PlainHTML where
-  render = pure >>> pure
-
-instance _Render_Array_PlainHTML :: Render Hs where
-  render = pure
-
 pempty :: forall f1 f2 a. Applicative f1 => Plus f2 => f1 (f2 a)
 pempty = pure empty
 
-newtype ProseString
-  = ProseString String
+newtype Prose
+  = Prose String
 
-instance _Render_ProseString :: Render ProseString where
-  render (ProseString s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
+instance _Render_Prose :: Monad m => Render m Prose where
+  render (Prose s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
 
-newtype ExternalString
-  = ExternalString String
+newtype Literal
+  = Literal String
 
-instance _Render_ExternalString :: Render ExternalString where
-  render (ExternalString s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
+instance _Render_Literal :: Monad m => Render m Literal where
+  render (Literal s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
 
-newtype CodeString
-  = CodeString String
+newtype Code
+  = Code String
 
-instance _Render_CodeString :: Render CodeString where
-  render (CodeString s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
+instance _Render_Code :: Monad m => Render m Code where
+  render (Code s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
 
-instance _Render_Module :: Render Module where
+instance _Render_Module :: Monad m => Render m Module where
   render = todo "Render Module"
 
-instance _Render_DataTypeDef :: Render DataTypeDef where
+instance _Render_DataTypeDef :: Monad m => Render m DataTypeDef where
   render = todo "Render DataTypeDef"
 
-instance _Render_DataType :: Render DataType where
+instance _Render_DataType :: Monad m => Render m DataType where
   render = todo "Render DataType"
 
-instance _Render_PoType :: Render PoType where
+instance _Render_PoType :: Monad m => Render m PoType where
   render = todo "Render PoType"
 
-instance _Render_PoTypeDef :: Render PoTypeDef where
+instance _Render_PoTypeDef :: Monad m => Render m PoTypeDef where
   render = todo "Render PoTypeDef"
 
-instance _Render_FunctionDef :: Render FunctionDef where
+instance _Render_FunctionDef :: Monad m => Render m FunctionDef where
   render = todo "Render FunctionDef"
 
-instance _Render_RelationDef :: Render RelationDef where
+instance _Render_RelationDef :: Monad m => Render m RelationDef where
   render = todo "Render RelationDef"
 
-instance _Render_RuleDef :: Render RuleDef where
+instance _Render_RuleDef :: Monad m => Render m RuleDef where
   render = todo "Render RuleDef"
 
-instance _Render_Term :: Render Term where
+instance _Render_Term :: Monad m => Render m Term where
   render = todo "Render Term"
 
-instance _Render_Rule :: Render Rule where
+instance _Render_Rule :: Monad m => Render m Rule where
   render = todo "Render Rule"
 
-instance _Render_Hypothesis :: Render Hypothesis where
+instance _Render_Hypothesis :: Monad m => Render m Hypothesis where
   render = todo "Render Hypothesis"
 
-instance _Render_SideHypothesis :: Render SideHypothesis where
+instance _Render_SideHypothesis :: Monad m => Render m SideHypothesis where
   render = todo "Render SideHypothesis"
 
-instance _Render_Prop :: Render Prop where
+instance _Render_Prop :: Monad m => Render m Prop where
   render = todo "Render Prop"
 
-instance _Render_StaticName :: Render StaticName where
+instance _Render_StaticName :: Monad m => Render m (StaticName sort) where
   render = todo "Render StaticName"
 
-instance _Render_VarName :: Render VarName where
-  render = todo "Render VarName"
+instance _Render_MetaVarName :: Monad m => Render m MetaVarName where
+  render = todo "Render MetaVarName"
+
+--------------------------------------------------------------------------------
+-- ## Result
+--------------------------------------------------------------------------------
+type Result
+  = Either Exc

@@ -14,19 +14,44 @@ import Data.Maybe (Maybe(..))
 import Effect.Aff (Aff)
 import Halogen.HTML (PlainHTML)
 import Halogen.HTML as HH
+import Data.Tuple.Nested
 import Unsafe (todo)
+
+--------------------------------------------------------------------------------
+-- # Interpret
+--------------------------------------------------------------------------------
+interpret :: MInterp Unit
+interpret = todo "interpret"
+
+--------------------------------------------------------------------------------
+-- # Compare, Ordering
+--------------------------------------------------------------------------------
+-- | A partial meta ordering. 
+-- | - partial: can be unordered
+-- | - meta: can substitute metavariables
+type PartialMetaOrdering
+  = Maybe (Ordering /\ MetaVarSubst)
+
+class PartialMetaCompare a where
+  partialMetaCompare :: a -> a -> MInterp PartialMetaOrdering
+
+instance _PartialMetaCompare_Prop :: PartialMetaCompare Prop where
+  partialMetaCompare = todo "PartialMetaCompare Prop"
+
+instance _PartialMetaCompare_PoType_and_Term :: PartialMetaCompare (PoType /\ Term) where
+  partialMetaCompare = todo "PartialMetaCompare (PoType /\\ Term)"
 
 --------------------------------------------------------------------------------
 -- # Miscellaneos
 --------------------------------------------------------------------------------
-from_check :: forall a. M (Array PlainHTML) -> Either Exc a -> M a
+from_check :: forall a. MInterp_Hs -> Result a -> MInterp a
 from_check source = case _ of
-  Left (Exc exc) -> do 
-    source' <- source ⊕ CodeString " . " ⊕ exc.source ⊕ pempty
+  Left (Exc exc) -> do
+    source' <- source ⊕ Code " . " ⊕ exc.source ⊕ pempty
     throwError (Exc exc { source = source' })
   Right a -> pure a
 
-check_PoType_compatible_with_DataType :: PoType -> DataType -> M (Either Exc Unit)
+check_PoType_compatible_with_DataType :: PoType -> DataType -> MInterp (Result Unit)
 check_PoType_compatible_with_DataType (NamedPoType x) dt = do
   todo "sub x for po; rec po dt"
 
@@ -41,10 +66,10 @@ check_PoType_compatible_with_DataType (ProdPoType _ _ _) dt = todo ""
 
 check_PoType_compatible_with_DataType pt dt =
   throwExcM
-    (CodeString "failed check_PoType_compatible_with_DataType" ⊕ pempty)
-    ( ProseString "The partially-ordered type "
+    (Code "failed check_PoType_compatible_with_DataType" ⊕ pempty)
+    ( Prose "The partially-ordered type "
         ⊕ pt
-        ⊕ ProseString " is not compatible with the data type "
+        ⊕ Prose " is not compatible with the data type "
         ⊕ dt
         ⊕ pempty
     )
