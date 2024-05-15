@@ -1,34 +1,58 @@
 module Foliage.Interpretation where
 
+import Data.Tuple.Nested
 import Foliage.Language
 import Prelude
 import Control.Monad.Except (ExceptT, throwError)
 import Control.Monad.Reader (ReaderT, ask, asks)
 import Control.Monad.State (StateT)
+import Control.Monad.State as State
 import Control.Monad.Writer (WriterT)
 import Control.Plus (empty)
 import Data.Either (Either(..))
+import Data.List (List(..))
 import Data.Map (Map)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
+import Data.Newtype as Newtype
+import Debug as Debug
 import Effect.Aff (Aff)
 import Halogen.HTML (PlainHTML)
 import Halogen.HTML as HH
-import Data.Tuple.Nested
+import Record as Record
 import Unsafe (todo)
 
 --------------------------------------------------------------------------------
 -- # Interpret
 --------------------------------------------------------------------------------
-interpret :: Mdynamic Unit
-interpret = todo "interpret"
+interpret :: Mstatic Aff Env
+interpret = do
+  Debug.traceM "[Interpretation.interpret]"
+  todo "interpret"
+
+interpret_loop :: Mdynamic Unit
+interpret_loop = do
+  Env { gas, props_queue } <- State.modify (Newtype.over Env (Record.modify _gas (_ - 1)))
+  when (gas <= 0) do
+    throwExc
+      (Code "interpret_loop" ⊕ pempty)
+      (Prose "ran out of gas" ⊕ pempty)
+  -- TODO: if a queued prop left, then use it, else done
+  case props_queue of
+    Nil -> do
+      tellLog
+        (Prose "reached fixpoint" ⊕ pempty)
+        ((keyval (Code "gas" ⊕ pempty) (Code (show gas) ⊕ pempty) :: Mdynamic_Hs) ⊕ pempty)
+      pure unit
+    Cons prop props -> do
+      todo "interpret_fixpoint"
 
 --------------------------------------------------------------------------------
 -- # Compare, Ordering
 --------------------------------------------------------------------------------
 --| A partial meta ordering. 
---| - partial: can be unordered
---| - meta: can substitute metavariables
+--|   - "partial" -- can be unordered
+--|   - "meta" -- can substitute metavariables
 type PartialMetaOrdering
   = Maybe (Ordering /\ MetaVarSubst)
 
@@ -42,7 +66,7 @@ instance _PartialMetaCompare_PoType_and_Term :: PartialMetaCompare (PoType /\ Te
   partialMetaCompare = todo "PartialMetaCompare (PoType /\\ Term)"
 
 --------------------------------------------------------------------------------
--- # Miscellaneos
+-- # Miscellaneous
 --------------------------------------------------------------------------------
 from_check :: forall a. Mdynamic_Hs -> Result a -> Mdynamic a
 from_check source = case _ of
@@ -65,7 +89,7 @@ check_PoType_compatible_with_DataType (SumPoType _ _ _) dt = todo ""
 check_PoType_compatible_with_DataType (ProdPoType _ _ _) dt = todo ""
 
 check_PoType_compatible_with_DataType pt dt =
-  throwExcM
+  throwExc
     (Code "failed check_PoType_compatible_with_DataType" ⊕ pempty)
     ( Prose "The partially-ordered type "
         ⊕ pt

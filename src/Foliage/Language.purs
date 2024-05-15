@@ -10,7 +10,7 @@ import Control.Monad.Except (ExceptT)
 import Control.Monad.Reader (ReaderT, ask)
 import Control.Monad.State (StateT, State)
 import Control.Monad.State as State
-import Control.Monad.Writer (WriterT, Writer)
+import Control.Monad.Writer (Writer, WriterT, tell)
 import Control.Plus (class Plus, empty)
 import Data.Array as Array
 import Data.Either (Either(..))
@@ -26,6 +26,7 @@ import Data.Traversable (sequence, traverse)
 import Effect.Aff (Aff)
 import Halogen.HTML (PlainHTML)
 import Halogen.HTML as HH
+import Record as Record
 import Type.Proxy (Proxy(..))
 import Unsafe (todo)
 import Unsafe.Coerce (unsafeCoerce)
@@ -359,7 +360,7 @@ derive newtype instance _Ord_MetaVarName :: Ord MetaVarName
 
 freshenMetaVarName :: MetaVarName -> Mdynamic MetaVarName
 freshenMetaVarName (MetaVarName { label }) = do
-  Env { next_freshity } <- State.modify (Newtype.over Env \env -> env { next_freshity = env.next_freshity + 1 })
+  Env { next_freshity } <- State.modify (Newtype.over Env (Record.modify _next_freshity (_ + 1)))
   pure (MetaVarName { label, freshity: next_freshity })
 
 staticMetaVarName :: String -> MetaVarName
@@ -450,24 +451,6 @@ infixr 5 append_render as ⊕
 pempty :: forall f1 f2 a. Applicative f1 => Plus f2 => f1 (f2 a)
 pempty = pure empty
 
-newtype Prose
-  = Prose String
-
-instance _Render_Prose :: Monad m => Render m Prose where
-  render (Prose s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
-
-newtype Literal
-  = Literal String
-
-instance _Render_Literal :: Monad m => Render m Literal where
-  render (Literal s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
-
-newtype Code
-  = Code String
-
-instance _Render_Code :: Monad m => Render m Code where
-  render (Code s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
-
 instance _Render_Module :: Monad m => Render m Module where
   render = todo "Render Module"
 
@@ -513,10 +496,34 @@ instance _Render_StaticName :: Monad m => Render m (StaticName sort) where
 instance _Render_MetaVarName :: Monad m => Render m MetaVarName where
   render = todo "Render MetaVarName"
 
+newtype Prose
+  = Prose String
+
+instance _Render_Prose :: Monad m => Render m Prose where
+  render (Prose s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
+
+newtype Literal
+  = Literal String
+
+instance _Render_Literal :: Monad m => Render m Literal where
+  render (Literal s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
+
+newtype Code
+  = Code String
+
+instance _Render_Code :: Monad m => Render m Code where
+  render (Code s) = [ HH.span [] [ HH.text s :: PlainHTML ] ] ⊕ pempty
+
+keyval :: forall m. Monad m => Mstatic_Hs m -> Mstatic_Hs m -> Mstatic_Hs m
+keyval m_key m_val = do
+  key <- m_key
+  val <- m_val
+  pure [ HH.span [] key, HH.span [] val ]
+
 --------------------------------------------------------------------------------
 -- ## M(onad)
 --------------------------------------------------------------------------------
---| The monad for interpretation computations. Has the following effects:
+--| The monad for interpretation computations. Provides the following effects:
 --|   - `MonadReader Ctx`
 --|   - `MonadWriter (Array Log)`
 --|   - `MonadExcept Exc`
@@ -531,12 +538,12 @@ type Mdynamic
 type Mdynamic_
   = StateT Env Aff
 
---| The monad for rendering computations. Has the following effects:
+--| The monad for rendering computations. Provides the following effects:
 --|   - `MonadReader Ctx`
 --|   - `MonadWriter (Array Log)`
 --|   - `MonadExcept Exc`
 type Mstatic (m :: Type -> Type)
-  = ReaderT Ctx (ExceptT Exc (WriterT (Array Log) m))
+  = ReaderT Ctx (WriterT (Array Log) (ExceptT Exc m))
 
 --------------------------------------------------------------------------------
 -- ### Ctx
@@ -556,21 +563,29 @@ lookup_focusModule ::
 lookup_focusModule source get_field name = do
   Ctx { focusModule: Module mod } <- ask
   case mod # get_field # Map.lookup name of
-    Nothing -> do
-      source <- source
-      message <- Prose "Unknown " ⊕ name ⊕ pempty
-      throwError $ Exc { source, message }
+    Nothing -> throwExc source (Prose "Unknown " ⊕ name ⊕ pempty)
     Just v -> pure v
 
 --------------------------------------------------------------------------------
 -- ### Env
 --------------------------------------------------------------------------------
 newtype Env
-  = Env { next_freshity :: Int }
+  = Env
+  { next_freshity :: Int
+  , gas :: Int
+  , props_queue :: List Prop
+  }
 
 _next_freshity = Proxy :: Proxy "next_freshity"
 
+_gas = Proxy :: Proxy "gas"
+
+_props_queue = Proxy :: Proxy "props_queue"
+
 derive instance _Newtype_Env :: Newtype Env _
+
+initialEnv :: forall m. Monad m => Mstatic m Env
+initialEnv = todo "initialEnv"
 
 --------------------------------------------------------------------------------
 -- ### Log
@@ -578,14 +593,20 @@ derive instance _Newtype_Env :: Newtype Env _
 newtype Log
   = Log { label :: Hs, message :: Hs }
 
+tellLog :: forall m. Monad m => Mstatic_Hs m -> Mstatic_Hs m -> Mstatic m Unit
+tellLog m_label m_message = do
+  label <- m_label
+  message <- m_message
+  tell [ Log { label, message } ]
+
 --------------------------------------------------------------------------------
 -- ### Exc
 --------------------------------------------------------------------------------
 newtype Exc
   = Exc { source :: Hs, message :: Hs }
 
-throwExcM :: forall m a. Monad m => Mstatic_Hs m -> Mstatic_Hs m -> Mstatic m a
-throwExcM m_source m_message = do
+throwExc :: forall m a. Monad m => Mstatic_Hs m -> Mstatic_Hs m -> Mstatic m a
+throwExc m_source m_message = do
   source <- m_source
   message <- m_message
   throwError (Exc { source, message })
